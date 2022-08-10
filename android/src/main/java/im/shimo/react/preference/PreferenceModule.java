@@ -1,35 +1,25 @@
 package im.shimo.react.preference;
 
-import com.facebook.react.bridge.Arguments;
+import android.content.Context;
+import android.content.SharedPreferences;
+
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.ReadableArray;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
-import com.google.gson.Gson;
 
 import java.util.HashMap;
 import java.util.Map;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import javax.annotation.Nullable;
 
 
 public class PreferenceModule extends ReactContextBaseJavaModule {
 
-    private BroadcastReceiver sharePreferenceReceiver;
-    private Gson gson = new Gson();
-    private final String kSHMPreferenceChangedEmitterTag = "SHMPreferenceWhiteListChanged";
-    private final String kSHMPreferenceClearEmitterTag = "SHMPreferenceClear";
+    final private String mPreferenceKey = "data";
+    private SharedPreferences mSharedPreferences;
 
     public PreferenceModule(ReactApplicationContext context) {
         super(context);
-        registerSharePreferenceReceiver();
+        mSharedPreferences = getReactApplicationContext().getSharedPreferences("react-native-preference", Context.MODE_PRIVATE);
     }
 
     public String getName() {
@@ -37,108 +27,39 @@ public class PreferenceModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void set(String jsonStr, Promise promise) {
-        getDelegate().setJSPreferenceChangedDataString(jsonStr);
-        promise.resolve(getDelegate().getAllPreferences());
+    public void set(String data, Promise promise) {
+        SharedPreferences.Editor editor = getEditor();
+        editor.putString(mPreferenceKey, data);
+        editor.apply();
+        promise.resolve(getPreferences());
     }
 
     @ReactMethod
     public void clear(Promise promise) {
-        getDelegate().clear();
-        promise.resolve(getDelegate().getAllPreferences());
-    }
-
-    @ReactMethod
-    public void getPreferenceForKey(String key, Promise promise) {        
-        promise.resolve(getDelegate().getPreferenceValueForKey(key,null));
-    }
-
-    @ReactMethod
-    public void setWhiteList(ReadableArray whiteList) {
-        getDelegate().whiteList = whiteList.toArrayList();
+        SharedPreferences.Editor editor = getEditor();
+        editor.remove(mPreferenceKey);
+        editor.apply();
+        promise.resolve(getPreferences());
     }
 
     @Override
     public Map<String, Object> getConstants() {
         final Map<String, Object> constants = new HashMap<>();
-        constants.put("InitialPreferences", getDelegate().getAllPreferences());
+        constants.put("InitialPreferences", getPreferences());
         return constants;
+    }
+
+    private String getPreferences() {
+        return mSharedPreferences.getString(mPreferenceKey, "{}");
+    }
+
+    private SharedPreferences.Editor getEditor() {
+        return mSharedPreferences.edit();
     }
 
     @Override
     public void onCatalystInstanceDestroy() {
-        getReactApplicationContext().unregisterReceiver(sharePreferenceReceiver);
+        //mSharedPreferences.unregisterOnSharedPreferenceChangeListener(mListener);
     }
 
-    private SharedPreferencesDelegate getDelegate(){
-        if (SharedPreferencesDelegate.getInstance()==null){
-            SharedPreferencesDelegate.createInstance(getReactApplicationContext());
-        }
-        return SharedPreferencesDelegate.getInstance();
-    }
-
-    private void registerSharePreferenceReceiver() {
-        sharePreferenceReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (intent.getAction().equals(SharedPreferencesDelegate.kSHMPreferenceChangedNotification)) {
-                    String msg = intent.getStringExtra("MSG");
-                    HashMap<String,Object> msgMap = gson.fromJson(msg, HashMap.class);
-                    WritableMap map = Arguments.createMap();
-                    for (Map.Entry<String, Object> entry : msgMap.entrySet()) {
-                        String key = entry.getKey();
-                        Object value = entry.getValue();
-                        switch (value.getClass().getName()) {
-                            case "java.lang.Boolean":
-                                map.putBoolean(key, (Boolean) value);
-                                break;
-                            case "java.lang.Integer":
-                                map.putInt(key, (Integer) value);
-                                break;
-                            case "java.lang.Double":
-                                map.putDouble(key, (Double) value);
-                                break;
-                            case "java.lang.String":
-                                map.putString(key, (String) value);
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-
-                    sendEvent(
-                        getReactApplicationContext(),
-                        kSHMPreferenceChangedEmitterTag,
-                        map
-                    );
-                }
-
-                if (intent.getAction().equals(SharedPreferencesDelegate.kSHMPreferenceClearedNotification)) {
-                    String key = intent.getStringExtra("MSG");
-                    WritableMap map = Arguments.createMap();
-                    if (key != null) {
-                        map.putString("key", key);
-                    }
-
-                    sendEvent(
-                        getReactApplicationContext(),
-                        kSHMPreferenceClearEmitterTag,
-                        map
-                    );
-                }
-            }
-        };
-        IntentFilter dataIntentFilter = new IntentFilter(SharedPreferencesDelegate.kSHMPreferenceChangedNotification);
-        getReactApplicationContext().registerReceiver(sharePreferenceReceiver, dataIntentFilter);
-        IntentFilter clearIntentFilter = new IntentFilter(SharedPreferencesDelegate.kSHMPreferenceClearedNotification);
-        getReactApplicationContext().registerReceiver(sharePreferenceReceiver, clearIntentFilter);
-    }
-
-    private void sendEvent(ReactContext reactContext,
-                           String eventName,
-                           @Nullable WritableMap params) {
-        reactContext
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-            .emit(eventName, params);
-    }
 }
